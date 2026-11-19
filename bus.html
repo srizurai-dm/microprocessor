@@ -1,0 +1,134 @@
+
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>8085 Bus Architecture</title>
+<style>
+body{font-family:Arial,sans-serif;background:#f4f6fa;margin:0;padding:12px;text-align:center;color:#222}
+canvas{background:#fff;border:2px solid #345;border-radius:8px;display:block;margin:8px auto;max-width:100%}
+.p{display:inline-block;vertical-align:top;background:#fff;border:1px solid #bbb;border-radius:8px;padding:8px 12px;margin:4px;text-align:left;font-size:14px}
+button{padding:6px 11px;margin:2px;border:0;border-radius:5px;background:#2a6fdb;color:#fff;cursor:pointer}
+input[type=text]{width:56px;font-family:monospace;text-transform:uppercase}
+#ex{max-width:960px;margin:6px auto;text-align:left;background:#fffbe6;border:1px solid #e6d98a;border-radius:8px;padding:10px 14px;font-size:15px;line-height:1.5}
+</style></head><body>
+<h2>8085 Bus Architecture: Address, Data and Control Buses</h2>
+<div class="p">
+ Operation: <select id="op" onchange="init()">
+  <option value="mread">Memory Read</option><option value="mwrite">Memory Write</option>
+  <option value="ioread">I/O Read (IN)</option><option value="iowrite">I/O Write (OUT)</option></select><br>
+ Address/port (hex): <input type="text" id="adr" value="2050" maxlength="4" onchange="init()">
+ Data (hex): <input type="text" id="dat" value="5A" maxlength="2" onchange="init()">
+</div>
+<div class="p">
+ <button id="pl" onclick="playing=!playing;this.textContent=playing?'Pause':'Play'">Pause</button>
+ <button onclick="init()">Restart</button>
+ <button onclick="stp(-1)">&#9664; T</button><button onclick="stp(1)">T &#9654;</button><br>
+ Speed: <input type="range" id="sp" min="0.2" max="2" step="0.1" value="0.6">
+</div>
+<canvas id="cv" width="1000" height="510"></canvas>
+<div id="ex"></div>
+<script>
+const g=document.getElementById('cv').getContext('2d');
+const h2=v=>(v&255).toString(16).toUpperCase().padStart(2,'0')+'H';
+const h4=v=>(v&65535).toString(16).toUpperCase().padStart(4,'0')+'H';
+const C={a:'#1f5fbf',d:'#1a9a4a',c:'#d03a2a'};
+const OPS={
+ mread:{n:'Memory Read',r:1,io:0,s:'1 0',dev:'MEMORY'},
+ mwrite:{n:'Memory Write',r:0,io:0,s:'0 1',dev:'MEMORY'},
+ ioread:{n:'I/O Read (IN)',r:1,io:1,s:'1 0',dev:'I/O PORT'},
+ iowrite:{n:'I/O Write (OUT)',r:0,io:1,s:'0 1',dev:'I/O PORT'}};
+let o,hi,lo,data,F=[],t=0,playing=true,tm=0,hold=0,last=performance.now();
+function init(){
+ o=OPS[document.getElementById('op').value];
+ let a=(parseInt(document.getElementById('adr').value,16)||0)&65535;
+ data=(parseInt(document.getElementById('dat').value,16)||0)&255;
+ if(o.io)a&=255; hi=o.io?a:a>>8; lo=a&255;
+ F=[{k:'a',p:[[250,130],[760,130]],a:0,b:3},
+    {k:'a',p:[[250,230],[340,230]],a:0,b:1},
+    {k:'a',p:[[340,230],[340,185],[380,185]],a:0,b:1},
+    {k:'c',p:[[250,300],[425,300],[425,200]],a:0,b:1},
+    {k:'a',p:[[470,160],[760,160]],a:0.4,b:3},
+    {k:'c',p:[[250,440],[760,440]],a:0,b:3}];
+ if(o.r){F.push({k:'c',p:[[250,350],[760,350]],a:1,b:3},{k:'d',p:[[760,230],[250,230]],a:1,b:3});}
+ else{F.push({k:'c',p:[[250,400],[760,400]],a:1,b:3},{k:'d',p:[[250,230],[760,230]],a:1,b:3});}
+ t=0;hold=0;
+}
+function stp(d){playing=false;document.getElementById('pl').textContent='Play';
+ const k=Math.floor(t);t=((k+d+3)%3)+0.5;}
+function L(p){let s=0;for(let i=1;i<p.length;i++)s+=Math.hypot(p[i][0]-p[i-1][0],p[i][1]-p[i-1][1]);return s;}
+function at(p,s){for(let i=1;i<p.length;i++){const d=Math.hypot(p[i][0]-p[i-1][0],p[i][1]-p[i-1][1]);
+ if(s<=d){const u=s/d;return[p[i-1][0]+u*(p[i][0]-p[i-1][0]),p[i-1][1]+u*(p[i][1]-p[i-1][1])];}s-=d;}return p[p.length-1];}
+function ln(p,w,c,al){g.globalAlpha=al||1;g.strokeStyle=c;g.lineWidth=w;g.lineJoin='round';g.beginPath();
+ p.forEach((q,i)=>i?g.lineTo(q[0],q[1]):g.moveTo(q[0],q[1]));g.stroke();g.globalAlpha=1;}
+function tx(s,x,y,c,z,al){g.font=(z||12)+'px Arial';g.fillStyle=c||'#222';g.textAlign=al||'left';g.fillText(s,x,y);}
+function pill(x,y,s,c){g.font='bold 13px monospace';const w=g.measureText(s).width+12;
+ g.fillStyle='#fff';g.strokeStyle=c;g.lineWidth=1.5;g.fillRect(x-w/2,y-10,w,20);g.strokeRect(x-w/2,y-10,w,20);
+ g.fillStyle=c;g.textAlign='center';g.fillText(s,x,y+5);}
+function ar(x,y,d,c){g.fillStyle=c;g.beginPath();g.moveTo(x,y);
+ g.lineTo(x+(d==='r'?-11:11),y-6);g.lineTo(x+(d==='r'?-11:11),y+6);g.closePath();g.fill();}
+function bx(x,y,w,h,s,lit){g.fillStyle=lit?'#fff3b0':'#fff';g.strokeStyle=lit?'#e08a00':'#556';g.lineWidth=lit?3:1.5;
+ g.fillRect(x,y,w,h);g.strokeRect(x,y,w,h);tx(s,x+w/2,y+h/2+4,'#123',12,'center');}
+const on=f=>t>=f.a&&t<f.b;
+
+function draw(){
+ const cur=Math.min(2,Math.floor(Math.min(t,2.999)));
+ g.clearRect(0,0,1000,510);
+ for(let i=0;i<3;i++){g.fillStyle=i===cur?'#2a6fdb':'#dde3ec';g.fillRect(150+i*66,10,58,26);
+  tx('T'+(i+1),179+i*66,28,i===cur?'#fff':'#333',14,'center');}
+ tx('IO/M\u0305 = '+o.io+'    S1 S0 = '+o.s,360,28,'#333',13);
+ tx(o.n+':  data flows '+(o.r?o.dev+' \u2192 CPU':'CPU \u2192 '+o.dev),150,62,'#111',16);
+ // static buses
+ const base=[[[250,130],[760,130]],[[250,230],[760,230]],[[340,230],[340,185],[380,185]],
+  [[250,300],[425,300],[425,200]],[[470,160],[760,160]],[[250,350],[760,350]],[[250,400],[760,400]],[[250,440],[760,440]]];
+ base.forEach((p,i)=>ln(p,i<3||i===4?7:3,'#d3d9e2'));
+ ar(760,130,'r',C.a);ar(760,160,'r',C.a);ar(760,350,'r',C.c);ar(760,400,'r',C.c);ar(760,440,'r',C.c);ar(425,200,'r',C.c);
+ ar(762,230,'r',C.d);ar(248,230,'l',C.d);
+ // CPU
+ g.fillStyle='#eef2f7';g.strokeStyle='#345';g.lineWidth=3;g.fillRect(40,80,210,400);g.strokeRect(40,80,210,400);
+ tx('8085 CPU',145,72,'#123',16,'center');
+ bx(55,100,180,45,'PC / HL (address source)',t<1);
+ bx(55,210,180,45,'Accumulator (data)',o.r?t>=2:t>=0.5);
+ bx(55,320,180,100,'Timing & Control',on(F[6])||t<1);
+ // latch
+ bx(380,150,90,50,'74LS373 Latch',t<1);
+ tx('G = ALE',425,216,C.c,11,'center');
+ // device
+ g.fillStyle='#f6f1e7';g.strokeStyle='#345';g.lineWidth=3;g.fillRect(760,100,220,380);g.strokeRect(760,100,220,380);
+ tx(o.dev,870,125,'#123',16,'center');
+ tx(o.io?'Port address: '+(t>=0.4?h2(lo):'--'):'Address: '+(t>=0.4?h4(hi*256+lo):'--'),870,170,C.a,14,'center');
+ tx(o.r?'Sends data to CPU':'Receives data from CPU',870,230,C.d,13,'center');
+ const dv=o.r?(t>=1?h2(data):'--'):(t>=3?h2(data):'--');
+ tx('Content: '+(o.r?h2(data):dv),870,255,'#333',14,'center');
+ if(!o.r)tx('(stored at end of T3)',870,275,'#666',11,'center');
+ // labels
+ tx('A15\u2013A8  High-order address bus (CPU \u2192 device)',265,122,C.a,12);
+ tx('A7\u2013A0  Low-order address (latched)',480,152,C.a,12);
+ tx('AD7\u2013AD0 / D7\u2013D0  Data bus (both directions)',265,222,C.d,12);
+ tx('ALE  Address Latch Enable',265,292,C.c,12);
+ tx('RD\u0305  Read',265,342,C.c,12);tx('WR\u0305  Write',265,392,C.c,12);tx('IO/M\u0305  I/O or Memory',265,432,C.c,12);
+ // active flows
+ F.forEach(f=>{if(!on(f))return;ln(f.p,7,C[f.k],0.35);
+  const l=L(f.p),n=Math.max(2,Math.floor(l/26));g.fillStyle=C[f.k];
+  for(let i=0;i<n;i++){const q=at(f.p,(tm*90+i*l/n)%l);g.beginPath();g.arc(q[0],q[1],5,0,7);g.fill();}});
+ // value pills
+ pill(620,130,t<3?h2(hi):'--',C.a);pill(620,160,t>=0.4&&t<3?h2(lo):'--',C.a);
+ pill(300,252,t<1?h2(lo)+' addr':t<3?h2(data)+' data':'Hi-Z',C.d);
+ pill(620,230,F[7].a<=t&&t<3?h2(data):'--',C.d);
+ pill(600,300,'ALE = '+(t<1?1:0),C.c);
+ pill(600,350,'RD\u0305 = '+(o.r&&t>=1&&t<3?0:1),C.c);pill(600,400,'WR\u0305 = '+(!o.r&&t>=1&&t<3?0:1),C.c);
+ pill(600,440,'IO/M\u0305 = '+o.io,C.c);
+ // legend
+ [['Address flow',C.a],['Data flow',C.d],['Control flow',C.c]].forEach((e,i)=>{
+  g.fillStyle=e[1];g.beginPath();g.arc(300+i*170,495,6,0,7);g.fill();tx(e[0],312+i*170,500,'#222',13);});
+ // explanation
+ const A=o.io?'port '+h2(lo):h4(hi*256+lo),D=h2(data);let s;
+ if(cur===0)s='<b>T1 \u2013 Address flow and ALE:</b> '+(o.io?'The 8-bit port address '+h2(lo)+' is placed on both A15\u2013A8 and AD7\u2013AD0.':'The CPU puts '+h2(hi)+' on A15\u2013A8 and '+h2(lo)+' on AD7\u2013AD0.')+' <b>ALE = 1</b>, so the latch captures AD7\u2013AD0 and outputs A7\u2013A0 = '+h2(lo)+'. IO/M\u0305 = '+o.io+' selects '+(o.io?'I/O':'memory')+'. Address flow is always CPU \u2192 device.';
+ else if(cur===1)s=o.r?'<b>T2 \u2013 Control and data flow:</b> ALE = 0. The CPU asserts <b>RD\u0305 = 0</b> (control flow). The '+o.dev.toLowerCase()+' puts '+D+' on the data bus: <b>data flows device \u2192 CPU</b>.':'<b>T2 \u2013 Control and data flow:</b> ALE = 0. The CPU puts '+D+' on the data bus (<b>data flows CPU \u2192 device</b>) and asserts <b>WR\u0305 = 0</b>.';
+ else s=o.r?'<b>T3 \u2013 Data received:</b> The CPU reads '+D+' from the data bus into the accumulator'+(op0()==='fetch'?'':'/register')+'. RD\u0305 returns to 1 and the bus is released.':'<b>T3 \u2013 Data stored:</b> The '+o.dev.toLowerCase()+' stores '+D+' at '+A+' when WR\u0305 rises to 1. The bus is released.';
+ document.getElementById('ex').innerHTML=s+'<br><i>Summary: address bus is unidirectional, control bus is driven by the CPU, and the data bus is bidirectional.</i>';
+}
+function op0(){return document.getElementById('op').value;}
+function frame(ts){const dt=Math.min(0.05,(ts-last)/1000);last=ts;tm+=dt;
+ if(playing){const sp=parseFloat(document.getElementById('sp').value);
+  if(t<3)t+=dt*sp;else{hold+=dt;if(hold>1.2){t=0;hold=0;}}}
+ draw();requestAnimationFrame(frame);}
+init();requestAnimationFrame(frame);
+</script></body></html>
