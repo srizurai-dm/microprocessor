@@ -1,0 +1,101 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>8085 Simulator</title><style>
+body{font-family:Arial;background:#eef2f8;margin:0;padding:8px;color:#223}h2{text-align:center;margin:4px}
+.g{display:flex;flex-wrap:wrap;gap:8px;max-width:1200px;margin:0 auto 8px}.c{background:#fff;border:2px solid #c9d4e5;border-radius:10px;padding:8px 12px;flex:1;min-width:360px}
+h3{margin:2px 0 5px;font-size:15px}textarea{width:100%;font:13px monospace;box-sizing:border-box}
+button{padding:6px 11px;margin:2px;border:0;border-radius:5px;background:#2a6fdb;color:#fff;cursor:pointer}
+input{font:13px monospace;padding:3px}.r{display:inline-block;margin:3px;text-align:center;font-size:11px}.r input{width:52px;text-align:center;font-weight:bold}
+.f{display:inline-block;width:42px;margin:3px;border:2px solid #c0392b;border-radius:6px;text-align:center;cursor:pointer;font-weight:bold}.f.on{background:#c0392b;color:#fff}
+table{border-collapse:collapse;font:12px monospace;width:100%}td,th{border:1px solid #d5dbe6;padding:2px 4px;text-align:center}th{background:#eef2f8}
+tr.cur td{background:#fff3b0}td.pc{background:#ffd54a}.m input{width:26px;text-align:center;padding:1px}.m input.w{background:#9be5ac}
+#err{margin:5px 0;padding:5px 9px;border-radius:6px;font-size:14px;background:#e6f7ea;color:#1a7f37}#err.e{background:#fde7e4;color:#a02}
+#res{background:#fffbe6;border:1px solid #e6d98a;border-radius:6px;padding:6px 10px;font:14px monospace;line-height:1.6}</style></head><body>
+<h2>8085 Programming Simulator</h2><div class="g"><div class="c">
+Program memory start <input id="org" value="2000H" size="6"> Data memory start <input id="db" value="3000H" size="6">
+Sample: <select id="smp" onchange="smp()"><option>Add two numbers</option><option>Sum of 5 numbers</option><option>Largest of two</option></select>
+<textarea id="src" rows="11" spellcheck="false"></textarea>
+<button style="background:#1a7f37" onclick="asm()">Assemble &amp; Load</button><button onclick="run()">&#9654; Run</button><button style="background:#c0392b" onclick="stop()">&#9632; Stop</button>
+<button onclick="step();draw()">&#9197; Execute (step)</button><button style="background:#6c7a89" onclick="reset();draw()">&#8634; Reset</button>
+Speed <select id="spd"><option value="0">Instant</option><option value="200">Fast</option><option value="700" selected>Slow</option></select>
+<div id="err">Ready. Write a program and press Assemble &amp; Load.</div>
+<h3>Listing: address, hex code, instruction</h3><div style="max-height:200px;overflow:auto"><table id="lst"></table></div></div>
+<div class="c"><h3>Registers (editable, hex)</h3><div id="rg"></div><h3>Flags (click to toggle)</h3><div id="fl"></div>
+<h3>Result window</h3><div id="res"></div>
+<h3>Hex &#8596; Decimal</h3>Hex <input id="ch" size="7" oninput="$('chd').value=parseInt($('ch').value,16)"> = Dec <input id="chd" size="7" readonly> &nbsp;
+Dec <input id="cd" size="7" oninput="$('cdh').value=(+$('cd').value).toString(16).toUpperCase()+'H'"> = Hex <input id="cdh" size="7" readonly></div></div>
+<div class="g"><div class="c"><h3>Program memory (code)</h3><div id="pm"></div></div><div class="c m"><h3>Data memory (editable, green = written by program)</h3><div id="dm"></div>
+Add data: address <input id="aa" size="6" value="3010H"> value <input id="av" size="4" value="0AH"> <button onclick="addD()">Add</button></div></div>
+<script>
+const $=i=>document.getElementById(i),M=new Uint8Array(65536),R=[0,0,0,0,0,0,0,0],RN='BCDEHLMA',SMP=[
+["LXI H,3000H\nMOV A,M\nINX H\nADD M\nINX H\nMOV M,A\nHLT",[0x25,0x1A]],
+["LXI H,3000H\nMVI C,05H\nMVI A,00H\nLOOP: ADD M\nINX H\nDCR C\nJNZ LOOP\nSTA 3010H\nHLT",[1,2,3,4,5]],
+["LDA 3000H\nMOV B,A\nLDA 3001H\nCMP B\nJNC DONE\nMOV A,B\nDONE: STA 3002H\nHLT",[0x45,0x7C]]];
+let PC=0x2000,SP=0xFFFF,F={S:0,Z:0,AC:0,P:0,CY:0},hlt=1,LM={},LS=[],W=new Set(),SV={},steps=0,lw='-',tm=null;
+const x2=v=>(v&255).toString(16).toUpperCase().padStart(2,'0'),x4=v=>(v&65535).toString(16).toUpperCase().padStart(4,'0'),hv=s=>parseInt(String(s).trim().replace(/H$/i,''),16)||0;
+const HL=()=>R[4]<<8|R[5],gr=i=>i==6?M[HL()]:R[i],par=v=>{let c=0;for(;v;v>>=1)c+=v&1;return +(c%2==0)};
+function wm(a,v){a&=65535;M[a]=v&255;W.add(a);lw=x4(a)+'H = '+x2(v)+'H ('+(v&255)+')'}
+const sr=(i,v)=>i==6?wm(HL(),v):R[i]=v&255,rp=i=>i<3?R[2*i]<<8|R[2*i+1]:SP;
+function srp(i,v){v&=65535;if(i<3){R[2*i]=v>>8;R[2*i+1]=v&255}else SP=v}
+function szp(r){F.S=r>>7;F.Z=+(r==0);F.P=par(r)}
+function alu(t,v){const a=R[7];let r,c=t<4&&t&1?F.CY:0;
+ if(t<2){r=a+v+c;F.AC=+((a&15)+(v&15)+c>15);F.CY=+(r>255)}
+ else if(t<4||t==7){r=a-v-c;F.AC=+((a&15)+(~v&15)+1-c>15);F.CY=+(a<v+c)}
+ else{r=t==4?a&v:t==5?a^v:a|v;F.CY=0;F.AC=+(t==4)}
+ r&=255;szp(r);if(t!=7)R[7]=r}
+const f8=()=>{const v=M[PC];PC=PC+1&65535;return v},f16=()=>{const l=f8();return f8()<<8|l};
+function ex(op){const d=op>>3&7,s=op&7,i=op>>4&3;
+ if(op==0x76){hlt=1;return}if(!op)return;
+ if((op&0xC0)==0x40)return sr(d,gr(s));if((op&0xC7)==6)return sr(d,f8());
+ if((op&0xC7)==4){const v=gr(d),r=v+1&255;F.AC=+((v&15)+1>15);szp(r);return sr(d,r)}
+ if((op&0xC7)==5){const v=gr(d),r=v-1&255;F.AC=+((v&15)>0);szp(r);return sr(d,r)}
+ if((op&0xC0)==0x80)return alu(d,gr(s));if((op&0xC7)==0xC6)return alu(d,f8());
+ if((op&0xCF)==1)return srp(i,f16());if((op&0xCF)==3)return srp(i,rp(i)+1);if((op&0xCF)==11)return srp(i,rp(i)-1);
+ if((op&0xCF)==9){const r=HL()+rp(i);F.CY=+(r>65535);return srp(2,r)}
+ if((op&0xC7)==0xC2){const a=f16();if([!F.Z,F.Z,!F.CY,F.CY,!F.P,F.P,!F.S,F.S][d])PC=a;return}
+ if((op&0xEF)==10){R[7]=M[rp(i)];return}if((op&0xEF)==2)return wm(rp(i),R[7]);
+ switch(op){case 0xC3:PC=f16();return;case 0x3A:R[7]=M[f16()];return;case 0x32:return wm(f16(),R[7]);
+ case 0xEB:[R[2],R[4]]=[R[4],R[2]];[R[3],R[5]]=[R[5],R[3]];return;case 0x2F:R[7]=~R[7]&255;return;case 0x37:F.CY=1;return;case 0x3F:F.CY^=1;return;
+ case 7:{const c=R[7]>>7;R[7]=(R[7]<<1|c)&255;F.CY=c;return}case 15:{const c=R[7]&1;R[7]=R[7]>>1|c<<7;F.CY=c;return}}
+ hlt=1;err('Invalid opcode '+x2(op)+'H at '+x4(PC-1)+'H')}
+const RI={B:0,C:1,D:2,E:3,H:4,L:5,M:6,A:7},RP={B:0,D:1,H:2,SP:3};
+const MN={MOV:['rr',0x40,1,2],MVI:['ri',6,2,2],INR:['rs',4,1,1],DCR:['rs',5,1,1],ADD:['r0',0x80,1,1],ADC:['r0',0x88,1,1],SUB:['r0',0x90,1,1],SBB:['r0',0x98,1,1],
+ANA:['r0',0xA0,1,1],XRA:['r0',0xA8,1,1],ORA:['r0',0xB0,1,1],CMP:['r0',0xB8,1,1],ADI:['i',0xC6,2,1],SUI:['i',0xD6,2,1],ANI:['i',0xE6,2,1],XRI:['i',0xEE,2,1],
+ORI:['i',0xF6,2,1],CPI:['i',0xFE,2,1],LXI:['lxi',1,3,2],INX:['rp',3,1,1],DCX:['rp',11,1,1],DAD:['rp',9,1,1],LDA:['a',0x3A,3,1],STA:['a',0x32,3,1],
+JMP:['a',0xC3,3,1],JNZ:['a',0xC2,3,1],JZ:['a',0xCA,3,1],JNC:['a',0xD2,3,1],JC:['a',0xDA,3,1],JPO:['a',0xE2,3,1],JPE:['a',0xEA,3,1],JP:['a',0xF2,3,1],JM:['a',0xFA,3,1],
+LDAX:['ax',10,1,1],STAX:['ax',2,1,1],NOP:['n',0,1,0],HLT:['n',0x76,1,0],XCHG:['n',0xEB,1,0],CMA:['n',0x2F,1,0],STC:['n',0x37,1,0],CMC:['n',0x3F,1,0],RLC:['n',7,1,0],RRC:['n',15,1,0]};
+function num(s,lab){if(s in lab)return lab[s];if(/^[0-9A-F]+H$/.test(s))return parseInt(s,16);if(/^\d+$/.test(s))return+s;throw'Unknown number or label "'+s+'"'}
+const rg=(t,x)=>{if(!(x in t))throw'Invalid register/operand "'+x+'"';return t[x]};
+function enc(m,o,lab){const[k,op]=MN[m],v8=x=>{const v=num(x,lab);if(v>255)throw'Value '+x+' is larger than 8 bits';return v},w=x=>{const v=num(x,lab);return[v&255,v>>8&255]};
+ return k=='rr'?[0x40|rg(RI,o[0])<<3|rg(RI,o[1])]:k=='ri'?[6|rg(RI,o[0])<<3,v8(o[1])]:k=='rs'?[op|rg(RI,o[0])<<3]:k=='r0'?[op|rg(RI,o[0])]:k=='i'?[op,v8(o[0])]:
+ k=='lxi'?[1|rg(RP,o[0])<<4,...w(o[1])]:k=='rp'?[op|rg(RP,o[0])<<4]:k=='a'?[op,...w(o[0])]:k=='ax'?[op|(o[0]=='D'?16:0)]:[op]}
+function err(m,ok){const e=$('err');e.textContent=m;e.className=ok?'':'e'}
+function asm(){stop();try{const org=hv($('org').value),db=hv($('db').value);if(Math.abs(org-db)<256)throw'Program memory and data memory areas overlap: keep the start addresses at least 100H apart';
+ const it=[],lab={};let a=org;
+ $('src').value.split('\n').forEach((raw,n)=>{let s=raw.split(';')[0].trim();if(!s)return;const q=s.match(/^([A-Za-z_]\w*):\s*(.*)$/);if(q){lab[q[1].toUpperCase()]=a;s=q[2].trim();if(!s)return}
+ const p=s.split(/\s+/),mn=p[0].toUpperCase(),o=p.slice(1).join('').toUpperCase().split(',').filter(x=>x);
+ if(!MN[mn])throw'Line '+(n+1)+': Unknown instruction "'+p[0]+'"';if(o.length!=MN[mn][3])throw'Line '+(n+1)+': '+mn+' needs '+MN[mn][3]+' operand(s)';
+ it.push({n:n+1,mn,o,a,t:mn+(o.length?' '+o.join(','):'')});a+=MN[mn][2]});
+ if(!it.length)throw'No instructions found';if(a-org>256)throw'Program is larger than 256 bytes of program memory';
+ LS=[];LM={};it.forEach(x=>{let b;try{b=enc(x.mn,x.o,lab)}catch(e){throw'Line '+x.n+': '+e}
+  x.b=b.map(x2).join(' ');LS.push(x);LM[x.a]=x;b.forEach((v,i)=>M[x.a+i]=v)});
+ for(let i=a;i<org+256;i++)M[i]=0;reset();err('Assembled OK: '+(a-org)+' bytes at '+x4(org)+'H-'+x4(a-1)+'H. Press Run or Execute.',1)}catch(e){err(e)}draw()}
+function reset(){R.fill(0);F={S:0,Z:0,AC:0,P:0,CY:0};PC=hv($('org').value);SP=0xFFFF;steps=0;lw='-';W.clear();hlt=LS.length?0:1}
+function step(){if(hlt){if(!LS.length)err('Assemble a program first.');return}SV=snap();const a=PC,op=M[PC];PC=PC+1&65535;steps++;ex(op);if(steps>100000){hlt=1;err('Stopped: possible infinite loop (100000 instructions)')}}
+const snap=()=>({R:R.join(),F:JSON.stringify(F),PC,SP});
+function run(){stop();if(hlt)reset();W.clear();const d=+$('spd').value;
+ if(!d){let n=0;while(!hlt&&n++<100000)step();draw()}else tm=setInterval(()=>{step();draw();if(hlt)stop()},d)}
+function stop(){clearInterval(tm);tm=null}
+function smp(){const s=SMP[$('smp').selectedIndex];$('src').value=s[0];$('db').value='3000H';M.fill(0,0x3000,0x3100);s[1].forEach((v,i)=>M[0x3000+i]=v);asm()}
+function addD(){const a=hv($('aa').value),db=hv($('db').value);if(a<db||a>=db+128){err('Address must be inside the data memory window '+x4(db)+'H-'+x4(db+127)+'H');return}M[a]=hv($('av').value);err('Added '+x2(hv($('av').value))+'H at '+x4(a)+'H',1);draw()}
+function draw(){const sv=SV;
+ $('rg').innerHTML=[...'ABCDEHL'].map(n=>{const i=RN.indexOf(n);return`<div class="r">${n}<br><input id="r${n}" value="${x2(R[i])}" onchange="R[${i}]=hv(this.value)&255;draw()"><br>${R[i]}</div>`}).join('')+
+ `<div class="r">PC<br><input id="rPC" value="${x4(PC)}" onchange="PC=hv(this.value)&65535;draw()"><br>${PC}</div><div class="r">SP<br><input value="${x4(SP)}" onchange="SP=hv(this.value)&65535;draw()"><br>${SP}</div><div class="r">M<br><input value="${x2(M[HL()])}" readonly><br>HL=${x4(HL())}</div>`;
+ $('fl').innerHTML=Object.keys(F).map(k=>`<span class="f ${F[k]?'on':''}" onclick="F['${k}']^=1;draw()">${k}<br>${F[k]}</span>`).join('');
+ $('res').innerHTML=`Accumulator A = ${x2(R[7])}H = ${R[7]} (decimal)<br>Last memory store: ${lw}<br>Instructions executed: ${steps}<br>Status: ${hlt?(steps?'Program finished (HLT)':'Not started'):'Ready / running'}`;
+ $('lst').innerHTML='<tr><th>Address</th><th>Hex code</th><th>Instruction</th></tr>'+LS.map(x=>`<tr class="${x.a==PC?'cur':''}"><td>${x4(x.a)}H</td><td>${x.b}</td><td style="text-align:left">${x.t}</td></tr>`).join('');
+ const org=hv($('org').value),db=hv($('db').value);
+ let h='<table><tr><th>Addr</th>'+[...Array(16).keys()].map(i=>'<th>'+i.toString(16).toUpperCase()+'</th>').join('')+'</tr>';
+ for(let r=0;r<8;r++){h+='<tr><th>'+x4(org+r*16)+'</th>';for(let c=0;c<16;c++){const a=org+r*16+c;h+=`<td class="${a==PC?'pc':''}">${x2(M[a])}</td>`}h+='</tr>'}$('pm').innerHTML=h+'</table>';
+ h='<table><tr><th>Addr</th>'+[...Array(16).keys()].map(i=>'<th>'+i.toString(16).toUpperCase()+'</th>').join('')+'</tr>';
+ for(let r=0;r<8;r++){h+='<tr><th>'+x4(db+r*16)+'</th>';for(let c=0;c<16;c++){const a=db+r*16+c;h+=`<td><input class="${W.has(a)?'w':''}" value="${x2(M[a])}" onchange="M[${a}]=hv(this.value)&255;draw()"></td>`}h+='</tr>'}$('dm').innerHTML=h+'</table>'}
+smp();
+</script></body></html>

@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Stepper Motor - Interactive Animation</title>
+<style>
+  body{font-family:Arial,sans-serif;background:#f4f6fa;margin:0;padding:14px;text-align:center;color:#222}
+  h2{margin:6px 0}
+  canvas{background:#fff;border:2px solid #345;border-radius:8px;display:block;margin:8px auto;max-width:100%}
+  .panel{display:inline-block;vertical-align:top;background:#fff;border:1px solid #bbb;border-radius:8px;padding:10px 14px;margin:6px;text-align:left;font-size:14px}
+  .panel label{display:block;margin:5px 0}
+  button{padding:7px 12px;margin:3px 2px;border:0;border-radius:5px;background:#2a6fdb;color:#fff;cursor:pointer;font-size:14px}
+  button.stop{background:#c0392b} button.alt{background:#6c7a89}
+  select,input[type=range]{vertical-align:middle}
+  .legend{max-width:860px;margin:6px auto;text-align:left;font-size:14px;background:#fff;border:1px solid #bbb;border-radius:8px;padding:8px 16px;columns:2}
+  .legend div{margin:3px 0}
+  .info{font-size:14px;line-height:1.6;min-width:280px}
+  .warn{color:#b35900;font-weight:bold}
+</style>
+</head>
+<body>
+<h2>Stepper Motor: Interactive Animation</h2>
+<canvas id="cv" width="900" height="560"></canvas>
+
+<div class="legend">
+  <div><b>1</b> Stator housing (yoke)</div>
+  <div><b>2</b> Pole (soft-iron core)</div>
+  <div><b>3</b> Coil winding (copper)</div>
+  <div><b>4</b> Pole shoe (pole tip)</div>
+  <div><b>5</b> Air gap</div>
+  <div><b>6</b> Rotor (permanent magnet, N and S)</div>
+  <div><b>7</b> Shaft</div>
+  <div><b>A, B, A', B'</b> Poles with their coils</div>
+</div>
+
+<div class="panel">
+  <b>Source selection</b>
+  <label><input type="radio" name="src" value="5"> 5 V battery pack</label>
+  <label><input type="radio" name="src" value="12" checked> 12 V adapter (rated)</label>
+  <label><input type="radio" name="src" value="24"> 24 V industrial supply</label>
+  <label>Coil resistance: <input type="range" id="res" min="5" max="50" value="10"> <span id="resv">10</span> &Omega;</label>
+  <label>Drive mode:
+    <select id="mode">
+      <option value="wave">Wave drive (1 coil, 90&deg;/step)</option>
+      <option value="full">Full step (2 coils, 90&deg;/step)</option>
+      <option value="half">Half step (45&deg;/step)</option>
+    </select></label>
+</div>
+
+<div class="panel">
+  <b>Rotation control</b><br>
+  <button onclick="run(1)">&#8635; Run Clockwise</button>
+  <button onclick="run(-1)">&#8634; Run Anticlockwise</button><br>
+  <button class="stop" onclick="run(0)">Stop</button>
+  <button class="alt" onclick="stepOnce(1)">Step CW</button>
+  <button class="alt" onclick="stepOnce(-1)">Step CCW</button>
+  <button class="alt" onclick="resetAll()">Reset</button>
+  <label>Step rate: <input type="range" id="rate" min="1" max="10" value="2"> <span id="ratev">2</span> steps/s</label>
+</div>
+
+<div class="panel info" id="info"></div>
+
+<script>
+const cv=document.getElementById('cv'),g=cv.getContext('2d');
+const CX=290,CY=290;
+const PA=[-90,0,90,180].map(d=>d*Math.PI/180);           // pole angles (A top, B right, A' bottom, B' left)
+const NAMES=['A','B',"A'","B'"];
+const MODES={
+  wave:[[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]],
+  full:[[1,1,0,0],[0,1,1,0],[0,0,1,1],[1,0,0,1]],
+  half:[[1,0,0,0],[1,1,0,0],[0,1,0,0],[0,1,1,0],[0,0,1,0],[0,0,1,1],[0,0,0,1],[1,0,0,1]]
+};
+let mode='wave',idx=0,dir=0,acc=0,cum=0,time=0,rotor=PA[0],V=12,R=10,rate=2;
+
+/* ---------- controls ---------- */
+document.querySelectorAll('input[name=src]').forEach(r=>r.onchange=()=>V=+r.value);
+document.getElementById('res').oninput=e=>{R=+e.target.value;document.getElementById('resv').textContent=R;};
+document.getElementById('rate').oninput=e=>{rate=+e.target.value;document.getElementById('ratev').textContent=rate;};
+document.getElementById('mode').onchange=e=>{mode=e.target.value;idx=0;};
+function run(d){dir=d;}
+function stepOnce(d){dir=0;doStep(d);}
+function doStep(d){const n=MODES[mode].length;idx=(idx+d+n)%n;cum+=d;}
+function resetAll(){dir=0;idx=0;cum=0;rotor=PA[0];}
+const stepDeg=()=>mode==='half'?45:90;
+
+/* ---------- helpers ---------- */
+function loc(th,r,w){return [CX+r*Math.cos(th)-w*Math.sin(th),CY+r*Math.sin(th)+w*Math.cos(th)];}
+function plen(p){let L=0;for(let i=1;i<p.length;i++)L+=Math.hypot(p[i][0]-p[i-1][0],p[i][1]-p[i-1][1]);return L;}
+function at(p,s){for(let i=1;i<p.length;i++){const d=Math.hypot(p[i][0]-p[i-1][0],p[i][1]-p[i-1][1]);
+  if(s<=d){const t=s/d;return [p[i-1][0]+t*(p[i][0]-p[i-1][0]),p[i-1][1]+t*(p[i][1]-p[i-1][1])];}s-=d;}return p[p.length-1];}
+function wire(p){g.strokeStyle='#333';g.lineWidth=3;g.beginPath();p.forEach((q,i)=>i?g.lineTo(q[0],q[1]):g.moveTo(q[0],q[1]));g.stroke();}
+function dots(p,I,gap){if(I<=0)return;const v=Math.min(Math.max(I*4,2),14),L=plen(p),n=Math.max(2,Math.floor(L/(gap||26)));
+  g.fillStyle='#e67e00';
+  for(let i=0;i<n;i++){const s=(time*v*12+i*L/n)%L,q=at(p,s);g.beginPath();g.arc(q[0],q[1],4.5,0,7);g.fill();}}
+function callout(n,x,y){g.fillStyle='#fff';g.strokeStyle='#222';g.lineWidth=1.5;g.beginPath();g.arc(x,y,10,0,7);g.fill();g.stroke();
+  g.fillStyle='#111';g.font='bold 13px Arial';g.textAlign='center';g.fillText(n,x,y+4.5);}
+
+/* ---------- motor ---------- */
+function drawMotor(state,I){
+  // housing
+  g.strokeStyle='#5d6d7e';g.lineWidth=18;g.beginPath();g.arc(CX,CY,192,0,7);g.stroke();
+  g.fillStyle='#f2f3f4';g.beginPath();g.arc(CX,CY,183,0,7);g.fill();
+  // poles
+  for(let i=0;i<4;i++){
+    const th=PA[i],on=state[i];
+    g.save();g.translate(CX,CY);g.rotate(th);
+    g.fillStyle=on?'#f5a623':'#9aa6b2';g.strokeStyle='#333';g.lineWidth=1.5;
+    g.fillRect(105,-18,80,36);g.strokeRect(105,-18,80,36);                // core
+    g.fillRect(92,-38,16,76);g.strokeRect(92,-38,16,76);                  // shoe
+    g.fillStyle=on?'#ffb347':'#c97b2a';g.fillRect(128,-30,46,60);g.strokeRect(128,-30,46,60);   // coil
+    g.strokeStyle=on?'#8a4b00':'#7a4a16';g.lineWidth=1.2;
+    for(let x=132;x<=172;x+=6){g.beginPath();g.moveTo(x,-30);g.lineTo(x,30);g.stroke();}
+    g.restore();
+    if(on){const path=[loc(th,128,-36),loc(th,174,-36),loc(th,174,36),loc(th,128,36),loc(th,128,-36)];dots(path,I,22);}
+    // labels
+    const lp=loc(th,212,0);g.fillStyle=on?'#c0392b':'#222';g.font='bold 17px Arial';g.textAlign='center';
+    g.fillText('Pole '+NAMES[i],lp[0],lp[1]+5);
+    const lc=loc(th,212,0);g.font='12px Arial';g.fillStyle='#7a4a16';
+    const ll=loc(th,228,0);g.fillText('Coil '+NAMES[i],ll[0],ll[1]+6);
+    if(on){const sp=loc(th,100,0);g.fillStyle='#fff';g.font='bold 12px Arial';g.fillText('S',sp[0],sp[1]+4);}
+  }
+  // rotor
+  g.save();g.translate(CX,CY);g.rotate(rotor);
+  g.fillStyle='#e74c3c';g.beginPath();g.moveTo(0,0);g.arc(0,0,70,-Math.PI/2,Math.PI/2);g.closePath();g.fill();
+  g.fillStyle='#2e86de';g.beginPath();g.moveTo(0,0);g.arc(0,0,70,Math.PI/2,Math.PI*1.5);g.closePath();g.fill();
+  g.strokeStyle='#222';g.lineWidth=2;g.beginPath();g.arc(0,0,70,0,7);g.stroke();
+  g.fillStyle='#fff';g.font='bold 26px Arial';g.textAlign='center';g.fillText('N',40,9);g.fillText('S',-40,9);
+  g.fillStyle='#333';g.beginPath();g.arc(0,0,13,0,7);g.fill();g.fillStyle='#bbb';g.fillRect(-2,-13,4,8);
+  g.restore();
+  // callouts
+  const a=-Math.PI/4;
+  callout(1,CX+192*Math.cos(a),CY+192*Math.sin(a));
+  callout(2,CX-118,CY+26);
+  callout(3,CX+22,CY+152);
+  callout(4,CX+30,CY-100);
+  callout(5,CX+85*Math.cos(a),CY+85*Math.sin(a));
+  callout(6,CX-30,CY-45);
+  callout(7,CX+25,CY+25);
+  // direction banner
+  g.fillStyle=dir===1?'#1a7f37':dir===-1?'#8e44ad':'#555';g.font='bold 17px Arial';g.textAlign='left';
+  g.fillText(dir===1?'\u21BB Clockwise rotation':dir===-1?'\u21BA Anticlockwise rotation':'Stopped',20,28);
+}
+
+/* ---------- source + driver schematic ---------- */
+function drawCircuit(state,I){
+  const ys=[140,230,320,410],Is=state.map(s=>s?I:0),tot=Is.reduce((a,b)=>a+b,0);
+  const sumFrom=k=>{let s=0;for(let j=k;j<4;j++)s+=Is[j];return s;};
+  g.fillStyle='#222';g.font='bold 15px Arial';g.textAlign='center';g.fillText('Source and driver circuit',740,22);
+  // wires
+  wire([[722,50],[600,50],[600,410]]);wire([[758,50],[880,50],[880,410]]);
+  ys.forEach(y=>wire([[600,y],[880,y]]));
+  // dots
+  dots([[722,50],[600,50],[600,ys[0]]],tot,30);
+  for(let k=1;k<4;k++)dots([[600,ys[k-1]],[600,ys[k]]],sumFrom(k),30);
+  ys.forEach((y,k)=>dots([[600,y],[880,y]],Is[k],30));
+  for(let k=1;k<4;k++)dots([[880,ys[k]],[880,ys[k-1]]],sumFrom(k),30);
+  dots([[880,ys[0]],[880,50],[758,50]],tot,30);
+  // battery
+  g.fillStyle='#fff';g.fillRect(722,32,36,36);
+  g.lineWidth=4;g.strokeStyle='#c00';g.beginPath();g.moveTo(731,36);g.lineTo(731,64);g.stroke();
+  g.strokeStyle='#00c';g.beginPath();g.moveTo(749,42);g.lineTo(749,58);g.stroke();
+  g.fillStyle='#c00';g.font='bold 16px Arial';g.textAlign='center';g.fillText('+',714,44);
+  g.fillStyle='#00c';g.fillText('\u2212',768,44);
+  g.fillStyle='#111';g.font='bold 14px Arial';g.fillText('Source = '+V+' V DC',740,88);
+  // coils and switches
+  ys.forEach((y,k)=>{
+    g.fillStyle='#fff';g.fillRect(660,y-14,100,28);g.strokeStyle='#8a4b00';g.lineWidth=3;
+    for(let i=0;i<5;i++){g.beginPath();g.arc(670+i*20,y,10,Math.PI,2*Math.PI);g.stroke();}
+    g.fillStyle='#111';g.font='bold 13px Arial';g.fillText('Coil '+NAMES[k]+' ('+R+' \u03A9)',710,y-24);
+    g.fillStyle=state[k]?'#c0392b':'#777';g.fillText(state[k]?'I = '+Number(I.toFixed(2))+' A':'0 A (off)',710,y+32);
+    g.fillStyle='#fff';g.fillRect(790,y-20,50,36);
+    g.strokeStyle='#222';g.lineWidth=3;g.beginPath();g.moveTo(790,y);
+    if(state[k])g.lineTo(840,y);else g.lineTo(836,y-20);g.stroke();
+    g.fillStyle='#222';[790,840].forEach(x=>{g.beginPath();g.arc(x,y,3.5,0,7);g.fill();});
+    g.font='12px Arial';g.fillStyle=state[k]?'#1a7f37':'#777';g.fillText('S'+(k+1)+' '+(state[k]?'ON':'OFF'),815,y+24);
+  });
+  g.fillStyle='#b30000';g.font='bold 14px Arial';g.fillText('Total source current = '+Number(tot.toFixed(2))+' A',740,450);
+  g.fillStyle='#555';g.font='12px Arial';g.fillText('Orange dots = conventional current (+ to \u2212)',740,472);
+  g.fillText('S1\u2013S4: transistor switches of the driver',740,490);
+}
+
+/* ---------- main loop ---------- */
+let last=performance.now();
+function frame(ts){
+  const dt=Math.min(0.05,(ts-last)/1000);last=ts;time+=dt;
+  if(dir!==0){acc+=dt*rate;while(acc>=1){doStep(dir);acc-=1;}}
+  const state=MODES[mode][idx];
+  let sx=0,sy=0;state.forEach((on,i)=>{if(on){sx+=Math.cos(PA[i]);sy+=Math.sin(PA[i]);}});
+  const target=Math.atan2(sy,sx);
+  let diff=target-rotor;while(diff>Math.PI)diff-=2*Math.PI;while(diff<-Math.PI)diff+=2*Math.PI;
+  rotor+=diff*Math.min(1,dt*10);
+  const I=V/R;
+  g.clearRect(0,0,900,560);
+  drawMotor(state,I);drawCircuit(state,I);
+  let deg=((cum*stepDeg())%360+360)%360;
+  let msg=V<=5?'<span class="warn">Low voltage: small current, weak torque (steps may be missed).</span>':
+          V===12?'Rated voltage: normal current and torque.':
+          '<span class="warn">Over-voltage: current is high and coils may overheat. Use a current limiter or chopper driver.</span>';
+  document.getElementById('info').innerHTML=
+   '<b>Status</b><br>Mode: '+({wave:'Wave drive',full:'Full step',half:'Half step'})[mode]+'<br>'+
+   'Energized coils: '+(state.map((s,i)=>s?NAMES[i]:'').filter(Boolean).join(' + '))+'<br>'+
+   'Step angle: '+stepDeg()+'&deg; &nbsp; Steps taken: '+cum+'<br>Shaft position: '+deg+'&deg;<br>'+
+   'Coil current I = V/R = '+V+'/'+R+' = '+Number(I.toFixed(2))+' A<br>'+msg;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
