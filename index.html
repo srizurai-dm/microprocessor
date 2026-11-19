@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mechatronics Diploma - Interactive Animations</title>
+<style>
+body{margin:0;font-family:Arial,sans-serif;background:#eef2f8;color:#223}
+header{background:#1f3a6b;color:#fff;text-align:center;padding:22px 10px}
+header h1{margin:0;font-size:28px}header p{margin:6px 0 0;opacity:.85}
+main{max-width:1050px;margin:0 auto;padding:14px}
+h2{margin:22px 0 8px;border-left:6px solid #2a6fdb;padding-left:10px;font-size:20px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+.card{background:#fff;border:2px solid #cdd6e3;border-radius:12px;padding:14px;display:flex;flex-direction:column}
+.card h3{margin:0 0 6px;font-size:17px}.card p{margin:0 0 12px;font-size:14px;color:#445;flex:1}
+.btn{display:block;text-align:center;text-decoration:none;color:#fff;background:#2a6fdb;padding:10px;border-radius:8px;font-weight:bold}
+.btn:hover{background:#1b4fa8}
+.mp .btn{background:#1a7f37}.mp .btn:hover{background:#12602a}
+.el .btn{background:#d98200}.el .btn:hover{background:#a86300}
+.kid .btn{background:#ef476f}.kid .btn:hover{background:#c0325a}
+footer{text-align:center;color:#667;font-size:13px;padding:16px}
+</style></head><body>
+<header><h1>Interactive Animations and Simulators</h1><p>Diploma in Mechatronics: Microprocessor, Electrical Circuits and Motors</p></header>
+<main>
+<h2>Microprocessor 8085</h2>
+<div class="grid mp">
+ <div class="card"><h3>8085 Programming Simulator</h3><p>Write assembly, see hex codes, registers, flags, program and data memory. Run, stop, execute step by step and reset.</p><a class="btn" href="8085programmer.html" target="_blank">Open Simulator</a></div>
+ <div class="card"><h3>Registers and Flags of 8085</h3><p>Categories of registers with bit sizes, the five flags and an animated instruction demo.</p><a class="btn" href="register.html" target="_blank">Open Registers</a></div>
+ <div class="card"><h3>Bus Architecture of 8085</h3><p>Address, data and control bus with the direction of flow in read and write operations.</p><a class="btn" href="bus.html" target="_blank">Open Bus Animation</a></div>
+ <div class="card"><h3>Timing Diagram: MVI r,data</h3><p>T-states, ALE, RD, WR and data on the bus at 3 MHz for MVI A,08H and other instructions.</p><a class="btn" href="timingdiagra.html" target="_blank">Open Timing Diagram</a></div>
+ <div class="card"><h3>Interfacing 8085 with 8255</h3><p>Pin-numbered wiring, Mode 0 control word 80H and LEDs on Port A, B and C.</p><a class="btn" href="interfacing8255.html" target="_blank">Open 8255 Interface</a></div>
+</div>
+<h2>Electrical Circuits and Motors</h2>
+<div class="grid el">
+ <div class="card"><h3>Kirchhoff's Laws Lab</h3><p>KCL and KVL with moving current dots. Change resistor values and predict currents.</p><a class="btn" href="a.html" target="_blank">Open Kirchhoff Lab</a></div>
+ <div class="card"><h3>Stepper Motor</h3><p>Poles, coils and rotor, with clockwise and anticlockwise rotation, source selection and current flow.</p><a class="btn" href="stepper.html" target="_blank">Open Stepper Motor</a></div>
+</div>
+<h2>For Little Ones (0-3 years)</h2>
+<div class="grid kid">
+ <div class="card"><h3>Jack and Jill</h3><p>The nursery rhyme with a snowy hill, a well with a bucket and Nepali costumes.</p><a class="btn" href="jack.html" target="_blank">Play Jack and Jill</a></div>
+</div>
+</main>
+<footer>Keep all the files in the same folder as index.html. Open this page in Chrome, Edge or Safari.</footer>
+</body></html>
